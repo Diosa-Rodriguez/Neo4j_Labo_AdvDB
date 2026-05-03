@@ -1,0 +1,83 @@
+####################################
+# 🚫 DBLP DATASETS (MANDATORY)
+####################################
+# Large datasets – MUST NOT be committed
+*.jsonl
+*.json
+*.zip
+
+# Explicit DBLP files (safety)
+DBLP-Citation-network-V18*
+test.jsonl
+data/
+datasets/
+
+####################################
+# ⚠️ Neo4j runtime & persisted data
+####################################
+neo4j_mount/data/
+neo4j_mount/logs/
+neo4j_mount/plugins/
+neo4j_mount/import/
+
+####################################
+# 🐳 Docker
+####################################
+.env
+*.env
+docker-compose.override.yml
+
+####################################
+# ☸️ Kubernetes
+####################################
+*.log
+logs/
+k8s/generated/
+k8s/tmp/
+
+####################################
+# ☕ Java (if using Java loader)
+####################################
+target/
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+####################################
+# 🐍 Python (if using Python loader)
+####################################
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env/
+
+####################################
+# 🧰 Build & OS
+####################################
+build/
+dist/
+tmp/
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+####################################
+# 🧠 IDEs & Editors
+####################################
+.idea/
+.vscode/
+*.iml
+.settings/
+.project
+.classpath
+
+####################################
+# 📄 Reports
+####################################
+# Ignore generated reports, keep final PDF only
+report_draft.*
+report_tmp.*
