@@ -8,6 +8,10 @@ import org.neo4j.driver.Session;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.neo4j.driver.Values.parameters;
 
@@ -31,7 +35,7 @@ public class Example {
             try {
                 System.out.println("Sleeping a bit waiting for the db");    
                 Thread.yield();   
-                Thread.sleep(5000); // let some time for the neo4j container to be up and running
+                Thread.sleep(5000); 
 
                 driver.verifyConnectivity();
                 connected = true;
@@ -41,45 +45,124 @@ public class Example {
             }
         } while(!connected);
 
+        // --- STEP 2.1: CREATE CONSTRAINTS / INDEXES ---
+        System.out.println("Creating database constraints/indexes...");
+        try (Session session = driver.session()) {
+            session.writeTransaction(tx -> {
+                tx.run("CREATE CONSTRAINT IF NOT EXISTS FOR (a:ARTICLE) REQUIRE a.key_id IS UNIQUE");
+                tx.run("CREATE CONSTRAINT IF NOT EXISTS FOR (auth:AUTHOR) REQUIRE auth.name IS UNIQUE");
+                return null;
+            });
+        }
+        System.out.println("Constraints created successfully.");
+
         FileReader fr = new FileReader(jsonPath);
         BufferedReader br = new BufferedReader(fr);
-        System.out.println("Reading first lines of the json file and parsing them:");
-
-        // Create the Jackson ObjectMapper
+        
         ObjectMapper mapper = new ObjectMapper();
+        
+        // Prepare Batching variables
+        List<Map<String, Object>> batchList = new ArrayList<>();
+        int batchSize = 5000; // Adjust if you run into memory limits
+        int totalProcessed = 0;
 
-        // Read the first 5 lines to test the parsing
-        for (int i = 0; i < 5 ; i++) {
+        // The optimized batch Cypher query
+        String batchCypherQuery = 
+            "UNWIND $batch AS row " +
+            "MERGE (a:ARTICLE {key_id: row.articleId}) " +
+            "ON CREATE SET a.title = row.title " +
+            "ON MATCH SET a.title = row.title " +
+            "FOREACH (authorName IN row.authors | " +
+            "  MERGE (auth:AUTHOR {name: authorName}) " +
+            "  MERGE (auth)-[:AUTHORED]->(a) " +
+            ") " +
+            "FOREACH (refId IN row.references | " +
+            "  MERGE (cited:ARTICLE {key_id: refId}) " +
+            "  MERGE (a)-[:CITES]->(cited) " +
+            ")";
+
+        System.out.println("Reading the json file and writing to Neo4j in batches...");
+        
+        // Start tracking time
+        long startTime = System.currentTimeMillis();
+        System.out.println("--- LOADING STARTED AT: " + startTime + " ms ---");
+
+        // Loop through the file line by line up to MAX_NODES
+        for (int i = 0; i < nbArticles; i++) {
             String line = br.readLine();
-            if (line == null) break; // Stop if we reach the end of the file
+            if (line == null) break; // Stop if end of file is reached
 
-            // Parse the string line into a JsonNode tree
             JsonNode articleNode = mapper.readTree(line);
 
-            // Extract the fields we need using Jackson
-            String articleId = articleNode.has("id") ? articleNode.get("id").asText() : "No ID";
-            String title = articleNode.has("title") ? articleNode.get("title").asText() : "No Title";
-
-            System.out.println("\n--- Parsed Article " + (i+1) + " ---");
-            System.out.println("Article ID: " + articleId);
-            System.out.println("Title: " + title);
-
-            // Extract Authors
+            // Create a map to hold exactly the variables Neo4j needs
+            Map<String, Object> articleMap = new HashMap<>();
+            articleMap.put("articleId", articleNode.has("id") ? articleNode.get("id").asText() : "No ID");
+            articleMap.put("title", articleNode.has("title") ? articleNode.get("title").asText() : "No Title");
+            
+            // Extract Authors into a Java List
+            List<String> authors = new ArrayList<>();
             if (articleNode.has("authors")) {
-                System.out.println("Authors:");
                 for (JsonNode authorNode : articleNode.get("authors")) {
-                    String authorName = authorNode.has("name") ? authorNode.get("name").asText() : "Unknown";
-                    System.out.println("  - " + authorName);
+                    if (authorNode.has("name")) {
+                        authors.add(authorNode.get("name").asText());
+                    }
                 }
             }
+            articleMap.put("authors", authors);
 
-            // Extract References (CITES)
+            // Extract References into a Java List
+            List<String> references = new ArrayList<>();
             if (articleNode.has("references")) {
-                System.out.println("References (Cites):");
                 for (JsonNode refNode : articleNode.get("references")) {
-                    System.out.println("  - " + refNode.asText());
+                    references.add(refNode.asText());
                 }
             }
+            articleMap.put("references", references);
+
+            // Add the prepared record to our batch
+            batchList.add(articleMap);
+            totalProcessed++;
+
+            // If the batch is full, send it to the database
+            if (batchList.size() >= batchSize) {
+                final List<Map<String, Object>> currentBatch = new ArrayList<>(batchList); // Copy list for the transaction
+                try (Session session = driver.session()) {
+                    session.writeTransaction(tx -> {
+                        tx.run(batchCypherQuery, parameters("batch", currentBatch));
+                        return null;
+                    });
+                }
+                System.out.println("Inserted batch of " + batchList.size() + " records. Total processed: " + totalProcessed);
+                batchList.clear(); // Empty the list for the next chunk
+            }
+        }
+
+        // Send any remaining records in the batch list that didn't reach exactly batchSize
+        if (!batchList.isEmpty()) {
+            try (Session session = driver.session()) {
+                session.writeTransaction(tx -> {
+                    tx.run(batchCypherQuery, parameters("batch", batchList));
+                    return null;
+                });
+            }
+            System.out.println("Inserted final batch of " + batchList.size() + " records. Total processed: " + totalProcessed);
+            batchList.clear();
+        }
+
+        // Stop tracking time
+        long endTime = System.currentTimeMillis();
+        long duration = (endTime - startTime) / 1000;
+        
+        System.out.println("--- LOADING ENDED AT: " + endTime + " ms ---");
+        System.out.println("Total loading time: " + duration + " seconds");
+
+        // Fetch the final counts from the database to prove it worked
+        try (Session session = driver.session()) {
+            long totalArticles = session.readTransaction(tx -> tx.run("MATCH (a:ARTICLE) RETURN count(a) AS c").single().get("c").asLong());
+            long totalAuthors = session.readTransaction(tx -> tx.run("MATCH (a:AUTHOR) RETURN count(a) AS c").single().get("c").asLong());
+            System.out.println("Total ARTICLES loaded: " + totalArticles);
+            System.out.println("Total AUTHORS loaded: " + totalAuthors);
+            System.out.println("Total nodes loaded (Articles + Authors): " + (totalArticles + totalAuthors));
         }
 
         driver.close();
