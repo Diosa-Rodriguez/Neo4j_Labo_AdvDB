@@ -56,8 +56,15 @@ public class Example {
         }
         System.out.println("Constraints created successfully.");
 
-        FileReader fr = new FileReader(jsonPath);
-        BufferedReader br = new BufferedReader(fr);
+        BufferedReader br;
+        if (jsonPath.startsWith("http://") || jsonPath.startsWith("https://")) {
+            System.out.println("Streaming data directly from URL: " + jsonPath);
+            java.net.URL url = new java.net.URL(jsonPath);
+            br = new BufferedReader(new java.io.InputStreamReader(url.openStream()));
+        } else {
+            System.out.println("Reading data from local file: " + jsonPath);
+            br = new BufferedReader(new java.io.FileReader(jsonPath));
+        }
         
         ObjectMapper mapper = new ObjectMapper();
         
@@ -167,6 +174,6 @@ public class Example {
 
         driver.close();
         br.close();
-        fr.close();
+
     }
 }
