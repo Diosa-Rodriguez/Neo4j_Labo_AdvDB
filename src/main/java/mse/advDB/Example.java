@@ -45,7 +45,7 @@ public class Example {
             }
         } while(!connected);
 
-        // --- STEP 2.1: CREATE CONSTRAINTS / INDEXES ---
+        // constraints
         System.out.println("Creating database constraints/indexes...");
         try (Session session = driver.session()) {
             session.writeTransaction(tx -> {
@@ -68,12 +68,12 @@ public class Example {
         
         ObjectMapper mapper = new ObjectMapper();
         
-        // Prepare Batching variables
+        //  Batching variables
         List<Map<String, Object>> batchList = new ArrayList<>();
-        int batchSize = 5000; // Adjust if you run into memory limits
+        int batchSize = 5000; 
         int totalProcessed = 0;
 
-        // The optimized batch Cypher query
+        
         String batchCypherQuery = 
             "UNWIND $batch AS row " +
             "MERGE (a:ARTICLE {key_id: row.articleId}) " +
@@ -97,11 +97,11 @@ public class Example {
         // Loop through the file line by line up to MAX_NODES
         for (int i = 0; i < nbArticles; i++) {
             String line = br.readLine();
-            if (line == null) break; // Stop if end of file is reached
+            if (line == null) break; 
 
             JsonNode articleNode = mapper.readTree(line);
 
-            // Create a map to hold exactly the variables Neo4j needs
+        
             Map<String, Object> articleMap = new HashMap<>();
             articleMap.put("articleId", articleNode.has("id") ? articleNode.get("id").asText() : "No ID");
             articleMap.put("title", articleNode.has("title") ? articleNode.get("title").asText() : "No Title");
@@ -126,11 +126,11 @@ public class Example {
             }
             articleMap.put("references", references);
 
-            // Add the prepared record to our batch
+            
             batchList.add(articleMap);
             totalProcessed++;
 
-            // If the batch is full, send it to the database
+            
             if (batchList.size() >= batchSize) {
                 final List<Map<String, Object>> currentBatch = new ArrayList<>(batchList); // Copy list for the transaction
                 try (Session session = driver.session()) {
@@ -140,11 +140,10 @@ public class Example {
                     });
                 }
                 System.out.println("Inserted batch of " + batchList.size() + " records. Total processed: " + totalProcessed);
-                batchList.clear(); // Empty the list for the next chunk
+                batchList.clear(); 
             }
         }
 
-        // Send any remaining records in the batch list that didn't reach exactly batchSize
         if (!batchList.isEmpty()) {
             try (Session session = driver.session()) {
                 session.writeTransaction(tx -> {
@@ -163,7 +162,7 @@ public class Example {
         System.out.println("--- LOADING ENDED AT: " + endTime + " ms ---");
         System.out.println("Total loading time: " + duration + " seconds");
 
-        // Fetch the final counts from the database to prove it worked
+        
         try (Session session = driver.session()) {
             long totalArticles = session.readTransaction(tx -> tx.run("MATCH (a:ARTICLE) RETURN count(a) AS c").single().get("c").asLong());
             long totalAuthors = session.readTransaction(tx -> tx.run("MATCH (a:AUTHOR) RETURN count(a) AS c").single().get("c").asLong());

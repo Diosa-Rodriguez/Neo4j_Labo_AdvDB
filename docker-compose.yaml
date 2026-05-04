@@ -25,7 +25,6 @@ services:
     networks:
       - internal
     volumes:
-      # Updated to point to your new 18GB downloaded file
       - /Users/diosa/Downloads/DBLP-Citation-network-V18.jsonl:/file.jsonl
     environment:
       - JSON_FILE=/file.jsonl
